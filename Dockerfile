@@ -11,6 +11,9 @@ RUN wget https://github.com/mozilla/DeepSpeech/releases/download/v0.8.0/deepspee
 RUN wget https://github.com/mozilla/DeepSpeech/releases/download/v0.8.0/deepspeech-0.8.0-models.scorer
 ENV LC_ALL C.UTF-8
 ENV LANG C.UTF-8
-EXPOSE 8000
+# EXPOSE 8000
+COPY requirements.txt requirements.txt
+RUN pip install -r requirements.txt
 COPY main.py .
-CMD uvicorn main:app --reload --host 0.0.0.0 --port 7000
+
+# CMD uvicorn main:app --reload --host 0.0.0.0 --port 7000
