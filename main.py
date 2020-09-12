@@ -122,10 +122,8 @@ if __name__=="__main__":
             audio = np.frombuffer(fin.readframes(fin.getnframes()), np.int16)
         fin.close()
 
-        if word_duration:
-            response = predict(ds.sttWithMetadata(audio))
-        else:
-            response = ds.stt(audio)
+
+        response = ds.stt(audio)
 
         os.remove(file_name)
 
