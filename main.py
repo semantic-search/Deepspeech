@@ -1,12 +1,11 @@
 from __future__ import absolute_import, division, print_function
-from fastapi import FastAPI, File, UploadFile, Form, Response, status
-import argparse
+
 import numpy as np
 import shlex
 import subprocess
 import sys
 import wave
-import json
+
 from deepspeech import Model, version
 from timeit import default_timer as timer
 try:
@@ -14,19 +13,9 @@ try:
 except ImportError:
     from pipes import quote
 import os
-from typing import Optional
-
-# imports for env kafka redis
-from dotenv import load_dotenv
-from kafka import KafkaProducer
-from kafka import KafkaConsumer
-from json import loads
 import base64
 import json
-import os
-import redis
 
-load_dotenv()
 
 
 print('Loading model from file ')
@@ -65,7 +54,7 @@ def metadata_to_string(metadata):
     return ''.join(token.text for token in metadata.tokens)
 
 
-def words_from_candidate_transcript(metadata):
+def predict(metadata):
     metadata = metadata.transcripts[0]
 
     word = ""
@@ -100,80 +89,49 @@ def words_from_candidate_transcript(metadata):
     return word_list
 
 
-KAFKA_HOSTNAME = os.getenv("KAFKA_HOSTNAME")
-KAFKA_PORT = os.getenv("KAFKA_PORT")
-REDIS_HOSTNAME = os.getenv("REDIS_HOSTNAME")
-REDIS_PORT = os.getenv("REDIS_PORT")
-REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
-
-RECEIVE_TOPIC = 'DEEP_SPEECH'
-SEND_TOPIC_FULL = "IMAGE_RESULTS"
-SEND_TOPIC_TEXT = "TEXT"
 
 
-print(f"kafka : {KAFKA_HOSTNAME}:{KAFKA_PORT}")
+def send_to_topic(topic, value_to_send_dic):
+    data_json = json.dumps(value_to_send_dic)
+    init.producer_obj.send(topic, value=data_json)
 
-# Redis initialize
-r = redis.StrictRedis(host=REDIS_HOSTNAME, port=REDIS_PORT,
-                      password=REDIS_PASSWORD, ssl=True)
+if __name__=="__main__":
+    for message in init.consumer_obj:
+        global_init()
+        message = message.value
+        db_key = str(message)
+        db_object = Cache.objects.get(pk=db_key)
+        file_name = db_object.file_name
+        init.redis_obj.set(globals.RECEIVE_TOPIC, file_name)
+        # data = message['data']
+        # word_duration = message['word_duration'] # OPTIONAL
 
-# Kafka initialize - To receive img data to process
-consumer = KafkaConsumer(
-    RECEIVE_TOPIC,
-    bootstrap_servers=[f"{KAFKA_HOSTNAME}:{KAFKA_PORT}"],
-    auto_offset_reset="earliest",
-    enable_auto_commit=True,
-    group_id="my-group",
-    value_deserializer=lambda x: loads(x.decode("utf-8")),
-)
-
-# Kafka initialize - For Sending processed img data further
-producer = KafkaProducer(
-    bootstrap_servers=[f"{KAFKA_HOSTNAME}:{KAFKA_PORT}"],
-    value_serializer=lambda x: json.dumps(x).encode("utf-8"),
-)
+        # Setting image-id to topic name(container name), so we can know which image it's currently processing
 
 
-for message in consumer:
-    print('xxx--- inside consumer---xxx')
-    print(f"kafka - - : {KAFKA_HOSTNAME}:{KAFKA_PORT}")
+        with open(file_name, "wb") as fh:
+            fh.write(db_object.file.read())
+        fin = wave.open(file_name, 'rb')
+        fs_orig = fin.getframerate()
+        if fs_orig != desired_sample_rate:
+            print(
+                'Warning: original sample rate ({}) is different than {}hz. Resampling might produce erratic speech recognition.'.format(
+                    fs_orig, desired_sample_rate), file=sys.stderr)
+            fs_new, audio = convert_samplerate(file_name, desired_sample_rate)
+        else:
+            audio = np.frombuffer(fin.readframes(fin.getnframes()), np.int16)
+        fin.close()
 
-    message = message.value
-    image_id = message['image_id']
-    data = message['data']
-    word_duration = message['word_duration'] # OPTIONAL
+        if word_duration:
+            response = predict(ds.sttWithMetadata(audio))
+        else:
+            response = ds.stt(audio)
 
-    # Setting image-id to topic name(container name), so we can know which image it's currently processing
-    r.set(RECEIVE_TOPIC, image_id)
+        os.remove(file_name)
 
-    file_name = image_id
+        print(response)
 
-    with open(file_name, "wb") as fh:
-        fh.write(base64.b64decode(data.encode("ascii")))
-
-    fin = wave.open(file_name, 'rb')
-    fs_orig = fin.getframerate()
-    if fs_orig != desired_sample_rate:
-        print(
-            'Warning: original sample rate ({}) is different than {}hz. Resampling might produce erratic speech recognition.'.format(
-                fs_orig, desired_sample_rate), file=sys.stderr)
-        fs_new, audio = convert_samplerate(file_name, desired_sample_rate)
-    else:
-        audio = np.frombuffer(fin.readframes(fin.getnframes()), np.int16)
-    fin.close()
-
-    print(word_duration)
-    if word_duration:
-        response = words_from_candidate_transcript(ds.sttWithMetadata(audio))
-    else:
-        response = ds.stt(audio)
-
-    os.remove(file_name)
-
-    print(response)
-
-    # sending full and text res(without cordinates or probability) to kafka
-    producer.send(SEND_TOPIC_FULL, value=response)
-    producer.send(SEND_TOPIC_TEXT, value=response)
-
-    producer.flush()
+        # sending full and text res(without cordinates or probability) to kafka
+        send_to_topic(globals.SEND_TOPIC_TEXT, value_to_send_dic=response)
+        send_to_topic(globals.SEND_TOPIC_FULL, value_to_send_dic=response)
+        init.producer_obj.flush()
