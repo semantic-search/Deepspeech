@@ -9,8 +9,6 @@ RUN mkdir deep_stt
 WORKDIR deep_stt
 RUN wget https://github.com/mozilla/DeepSpeech/releases/download/v0.8.0/deepspeech-0.8.0-models.pbmm
 RUN wget https://github.com/mozilla/DeepSpeech/releases/download/v0.8.0/deepspeech-0.8.0-models.scorer
-ENV LC_ALL C.UTF-8
-ENV LANG C.UTF-8
 # EXPOSE 8000
 COPY . .
 RUN pip install -r requirements.txt
