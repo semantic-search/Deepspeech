@@ -14,23 +14,36 @@ from db_models.models.cache_model import Cache
 import init
 from deep_speech import *
 import globals
+import pyfiglet
+import requests
 
 
+global_init()
 
+def update_state(file):
+    payload = {
+        'topic_name': globals.RECEIVE_TOPIC,
+        'client_id': globals.CLIENT_ID,
+        'value': file
+    }
+    requests.request("POST", globals.DASHBOARD_URL,  data=payload)
 
-
-def send_to_topic(topic, value_to_send_dic):
-    data_json = json.dumps(value_to_send_dic)
-    init.producer_obj.send(topic, value=data_json)
 
 if __name__=="__main__":
+    print(pyfiglet.figlet_format(str(globals.RECEIVE_TOPIC)))
+    print(pyfiglet.figlet_format("INDEXING CONTAINER"))
+    print("Connected to Kafka at " + globals.KAFKA_HOSTNAME + ":" + globals.KAFKA_PORT)
+    print("Kafka Consumer topic for this Container is " + globals.RECEIVE_TOPIC)
     for message in init.consumer_obj:
-        global_init()
+
         message = message.value
         db_key = str(message)
         db_object = Cache.objects.get(pk=db_key)
+
         file_name = db_object.file_name
-        init.redis_obj.set(globals.RECEIVE_TOPIC, file_name)
+        print("#############################################")
+        print("########## PROCESSING FILE " + file_name)
+        print("#############################################")
         # data = message['data']
         # word_duration = message['word_duration'] # OPTIONAL
 
@@ -52,12 +65,11 @@ if __name__=="__main__":
 
 
         response = ds.stt(audio)
-
+        toAdd=response[0]
+        db_object.text=toAdd
+        db_object.save()
         os.remove(file_name)
+        print(".....................FINISHED PROCESSING FILE.....................")
+        update_state(file_name)
 
         print(response)
-
-        # sending full and text res(without cordinates or probability) to kafka
-        send_to_topic(globals.SEND_TOPIC_TEXT, value_to_send_dic=response)
-        send_to_topic(globals.SEND_TOPIC_FULL, value_to_send_dic=response)
-        init.producer_obj.flush()
