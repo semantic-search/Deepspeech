@@ -16,17 +16,23 @@ from deep_speech import *
 import globals
 import pyfiglet
 import requests
-
+from init import ERR_LOGGER
 
 global_init()
 
-def update_state(file):
+def update_state(file_name):
     payload = {
-        'topic_name': globals.RECEIVE_TOPIC,
-        'client_id': globals.CLIENT_ID,
-        'value': file
+        'parent_name': globals.PARENT_NAME,
+        'group_name': globals.GROUP_NAME,
+        'container_name': globals.RECEIVE_TOPIC,
+        'file_name': file_name,
+        'client_id': globals.CLIENT_ID
     }
-    requests.request("POST", globals.DASHBOARD_URL,  data=payload)
+    try:
+        requests.request("POST", globals.DASHBOARD_URL,  data=payload)
+    except:
+        print(f"{e} ERROR IN SAVE TO DB FILE ID {FILE_ID}")
+        ERR_LOGGER(f"{e} ERROR IN SAVE TO DB FILE ID {FILE_ID}")
 
 
 if __name__=="__main__":
@@ -38,7 +44,12 @@ if __name__=="__main__":
 
         message = message.value
         db_key = str(message)
-        db_object = Cache.objects.get(pk=db_key)
+        try:
+            db_object = Cache.objects.get(pk=db_key)
+        except:
+            print(f"{e} EXCEPTION IN GET PK... continue")
+            ERR_LOGGER(f"{e} EXCEPTION IN GET PK... continue")
+            continue
 
         file_name = db_object.file_name
         print("#############################################")
@@ -65,11 +76,22 @@ if __name__=="__main__":
 
 
         response = ds.stt(audio)
-        toAdd=response[0]
-        db_object.text=toAdd
-        db_object.save()
+        print(response)
+        if response :
+            db_object.is_stt=True
+            toAdd = response[0]
+            db_object.text = toAdd
+            db_object.save()
+        else:
+            print('No data to show')
+
         os.remove(file_name)
         print(".....................FINISHED PROCESSING FILE.....................")
-        update_state(file_name)
+        try:
 
-        print(response)
+            update_state(file_name)
+        except Exception as e:
+            print(f"{e} ERROR IN PREDICT")
+            ERR_LOGGER(f"{e} Exception in predict FILE ID {FILE_ID}")
+
+        # print(response)
